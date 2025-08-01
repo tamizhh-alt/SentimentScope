@@ -6,12 +6,18 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { SentimentService } from '../services/SentimentService.js';
+import { TranslationService } from '../services/TranslationService.js';
+import { CacheService } from '../services/CacheService.js';
+import { fileUploadValidation } from '../utils/validation.js';
+import { validationResult } from 'express-validator';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 const sentimentService = new SentimentService();
+const translationService = new TranslationService();
+const cacheService = new CacheService();
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -51,8 +57,12 @@ const upload = multer({
 });
 
 // File upload and analysis
-router.post('/upload', upload.single('file'), async (req, res) => {
+router.post('/upload', upload.single('file'), fileUploadValidation, async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+    }
     if (!req.file) {
       return res.status(400).json({
         error: 'No file uploaded',
@@ -105,11 +115,29 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         const batch = texts.slice(i, i + processingBatchSize);
         const batchPromises = batch.map(async (text, index) => {
           try {
-            const sentimentResult = await sentimentService.analyzeSentiment(text);
+            // Language detection/translation parity with single-text
+            let detectedLanguage = 'en';
+            if (text && typeof text === 'string') {
+              detectedLanguage = await translationService.detectLanguage(text);
+            }
+            let textToAnalyze = text;
+            if (detectedLanguage !== 'en') {
+              const translation = await translationService.translate(text, detectedLanguage, 'en');
+              textToAnalyze = translation.translatedText;
+            }
+
+            // Cache key per text
+            const cacheKey = `sentiment:${Buffer.from(text).toString('base64')}:batch:file`;
+            const cached = cacheService.get(cacheKey);
+            if (cached) {
+              return { ...cached, index: i + index, cached: true };
+            }
+
+            const sentimentResult = await sentimentService.analyzeSentiment(textToAnalyze);
             
             let emotions = null;
             if (includeEmotions === 'true') {
-              emotions = await sentimentService.analyzeEmotions(text);
+              emotions = await sentimentService.analyzeEmotions(textToAnalyze);
             }
 
             return {
@@ -172,11 +200,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
   } catch (error) {
     console.error('File processing error:', error);
-    res.status(500).json({
-      error: 'File processing failed',
-      message: error.message,
-      code: 'FILE_PROCESSING_ERROR'
-    });
+    next(error);
   }
 });
 

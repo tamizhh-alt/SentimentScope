@@ -9,10 +9,10 @@ interface StatisticsCardsProps {
 
 const StatisticsCards: React.FC<StatisticsCardsProps> = ({ results }) => {
   const totalAnalyses = results.length;
-  const positiveCount = results.filter(r => r.results.sentiment === 'positive').length;
-  const negativeCount = results.filter(r => r.results.sentiment === 'negative').length;
+  const positiveCount = results.filter(r => r.sentiment.label === 'positive').length;
+  const negativeCount = results.filter(r => r.sentiment.label === 'negative').length;
   const averageConfidence = results.length > 0 
-    ? results.reduce((sum, r) => sum + r.results.confidence, 0) / results.length 
+    ? results.reduce((sum, r) => sum + r.sentiment.confidence, 0) / results.length 
     : 0;
 
   const stats = [

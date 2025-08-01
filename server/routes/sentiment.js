@@ -1,9 +1,10 @@
 import express from 'express';
-import { body, validationResult } from 'express-validator';
+import { validationResult } from 'express-validator';
 import { SentimentService } from '../services/SentimentService.js';
 import { TranslationService } from '../services/TranslationService.js';
 import { CacheService } from '../services/CacheService.js';
 import { optionalAuth } from '../middleware/auth.js';
+import { textValidation, batchAnalysisValidation, languageValidation } from '../utils/validation.js';
 
 const router = express.Router();
 const sentimentService = new SentimentService();
@@ -12,22 +13,14 @@ const cacheService = new CacheService();
 
 // Validation rules
 const analyzeValidation = [
-  body('text').notEmpty().withMessage('Text is required').isLength({ max: 10000 }).withMessage('Text too long'),
-  body('language').optional().isString().withMessage('Language must be a string'),
-  body('includeEmotions').optional().isBoolean().withMessage('includeEmotions must be boolean'),
-  body('detectLanguage').optional().isBoolean().withMessage('detectLanguage must be boolean'),
-  body('includeSummary').optional().isBoolean().withMessage('includeSummary must be boolean')
+  ...textValidation,
+  ...languageValidation,
 ];
 
-const batchValidation = [
-  body('texts').isArray({ min: 1, max: 100 }).withMessage('Texts must be an array with 1-100 items'),
-  body('texts.*').notEmpty().withMessage('Each text item is required'),
-  body('language').optional().isString(),
-  body('includeEmotions').optional().isBoolean()
-];
+const batchValidation = batchAnalysisValidation;
 
 // Single text analysis
-router.post('/analyze', optionalAuth, analyzeValidation, async (req, res) => {
+router.post('/analyze', optionalAuth, analyzeValidation, async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -118,16 +111,12 @@ router.post('/analyze', optionalAuth, analyzeValidation, async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Sentiment analysis error:', error);
-    res.status(500).json({
-      error: 'Analysis failed',
-      message: error.message,
-      code: 'SENTIMENT_ANALYSIS_ERROR'
-    });
+    next(error);
   }
 });
 
 // Batch analysis
-router.post('/batch', optionalAuth, batchValidation, async (req, res) => {
+router.post('/batch', optionalAuth, batchValidation, async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -226,11 +215,7 @@ router.post('/batch', optionalAuth, batchValidation, async (req, res) => {
     res.json(response);
   } catch (error) {
     console.error('Batch analysis error:', error);
-    res.status(500).json({
-      error: 'Batch analysis failed',
-      message: error.message,
-      code: 'BATCH_ANALYSIS_ERROR'
-    });
+    next(error);
   }
 });
 

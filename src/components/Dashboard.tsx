@@ -5,11 +5,40 @@ import { useAnalysis } from '../context/AnalysisContext';
 import SentimentTrend from './SentimentTrend';
 import StatisticsCards from './StatisticsCards';
 import WordCloud from './WordCloud';
+import axios from 'axios';
+
+interface AnalyticsState {
+  loading: boolean;
+  error: string | null;
+  data: any | null;
+}
 
 const Dashboard: React.FC = () => {
   const { analysisResults } = useAnalysis();
   const [dateRange, setDateRange] = useState('7d');
   const [sentimentFilter, setSentimentFilter] = useState('all');
+  const [analytics, setAnalytics] = useState<AnalyticsState>({ loading: true, error: null, data: null });
+
+  const fetchAnalytics = React.useCallback(async (opts?: { signal?: AbortSignal }) => {
+    setAnalytics(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const res = await axios.get(`${apiBase}/api/analytics/dashboard`, {
+        params: { timeRange: dateRange, sentimentFilter },
+        signal: opts?.signal as any,
+      });
+      setAnalytics({ loading: false, error: null, data: res.data });
+    } catch (err: any) {
+      if (opts?.signal?.aborted) return;
+      setAnalytics({ loading: false, error: err?.response?.data?.message || err.message || 'Failed to fetch analytics', data: null });
+    }
+  }, [dateRange, sentimentFilter]);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    fetchAnalytics({ signal: controller.signal });
+    return () => controller.abort();
+  }, [fetchAnalytics]);
 
   const dateRanges = [
     { value: '24h', label: 'Last 24 Hours' },
@@ -74,6 +103,7 @@ const Dashboard: React.FC = () => {
               className="px-4 py-2 bg-white/60 backdrop-blur-sm text-gray-700 rounded-lg font-medium hover:bg-white/80 transition-all duration-200 border border-white/20 flex items-center space-x-1"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              onClick={() => fetchAnalytics()}
             >
               <RefreshCw className="w-4 h-4" />
               <span className="hidden sm:inline">Refresh</span>
@@ -91,16 +121,27 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      <StatisticsCards results={analysisResults} />
+      {analytics.loading && (
+        <div className="bg-white/60 backdrop-blur-sm rounded-xl p-6 border border-white/20">Loading analytics…</div>
+      )}
+      {analytics.error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">{analytics.error}</div>
+      )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        <div className="xl:col-span-2">
-          <SentimentTrend results={analysisResults} />
-        </div>
-        <div>
-          <WordCloud />
-        </div>
-      </div>
+      {analytics.data && (
+        <>
+          <StatisticsCards results={analysisResults} />
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+            <div className="xl:col-span-2">
+              <SentimentTrend results={analysisResults} />
+            </div>
+            <div>
+              <WordCloud />
+            </div>
+          </div>
+        </>
+      )}
     </motion.div>
   );
 };

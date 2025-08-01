@@ -36,7 +36,8 @@ const TextInput: React.FC<TextInputProps> = ({ onAnalyze }) => {
     setError(null);
 
     try {
-      const response = await axios.post('http://localhost:3001/api/sentiment/analyze', {
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const response = await axios.post(`${apiBase}/api/sentiment/analyze`, {
         text: text.trim(),
         language,
         includeEmotions,

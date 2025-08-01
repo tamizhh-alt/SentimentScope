@@ -1,16 +1,14 @@
 import express from 'express';
 import { SentimentService } from '../services/SentimentService.js';
 import { auth, optionalAuth } from '../middleware/auth.js';
-import { body, query, validationResult } from 'express-validator';
+import { validationResult } from 'express-validator';
+import { analyticsValidation } from '../utils/validation.js';
 
 const router = express.Router();
 const sentimentService = new SentimentService();
 
 // Get dashboard analytics
-router.get('/dashboard', optionalAuth, [
-  query('timeRange').optional().isIn(['24h', '7d', '30d', '90d']).withMessage('Invalid time range'),
-  query('sentimentFilter').optional().isIn(['all', 'positive', 'negative', 'neutral']).withMessage('Invalid sentiment filter')
-], async (req, res) => {
+router.get('/dashboard', optionalAuth, analyticsValidation, async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -57,10 +55,7 @@ router.get('/dashboard', optionalAuth, [
     });
   } catch (error) {
     console.error('Analytics error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch analytics',
-      message: error.message
-    });
+    next(error);
   }
 });
 
