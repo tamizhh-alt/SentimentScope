@@ -46,32 +46,34 @@ const InputSection: React.FC<InputSectionProps> = ({ onAnalysisComplete }) => {
         });
       }, 200);
 
-      // Add analysis result to context
-      addAnalysisResult({
+      // Normalize backend result into AnalysisResult
+      const normalized = {
         id: data.id || Date.now().toString(),
-        timestamp: new Date(data.timestamp || Date.now()),
+        timestamp: data.timestamp || new Date().toISOString(),
         type: inputMethod,
-        data,
-        results: {
-          sentiment: data.sentiment?.label || 'neutral',
-          confidence: data.sentiment?.confidence || 0.5,
-          emotions: data.emotions ? data.emotions.reduce((acc: any, emotion: any) => {
-            acc[emotion.label] = emotion.percent / 100;
-            return acc;
-          }, {}) : {
-            joy: Math.random(),
-            anger: Math.random(),
-            sadness: Math.random(),
-            fear: Math.random(),
-            surprise: Math.random(),
-            disgust: Math.random(),
-          },
-          keywords: data.keywords || [],
-          summary: data.summary || null,
-          language: data.language || null,
-          processingTime: data.processingTime || 0
+        text: data.text,
+        file: data.file,
+        sentiment: {
+          label: data.sentiment?.label || 'neutral',
+          confidence: data.sentiment?.confidence ?? 0.5,
+          scores: data.sentiment?.scores || {},
         },
-      });
+        emotions: Array.isArray(data.emotions)
+          ? data.emotions.reduce((acc: Record<string, number>, e: any) => {
+              const key = String(e.label || '').toLowerCase();
+              const val = typeof e.percent === 'number' ? e.percent / 100 : (e.score ?? 0);
+              if (Number.isFinite(val)) acc[key] = val;
+              return acc;
+            }, {})
+          : (data.emotions || {}),
+        keywords: data.keywords || [],
+        summary: data.summary || null,
+        language: data.language || null,
+        processingTime: data.processingTime || 0,
+        raw: data,
+      };
+
+      addAnalysisResult(normalized as any);
 
       // Complete progress
       clearInterval(progressInterval);

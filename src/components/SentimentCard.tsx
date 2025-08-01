@@ -30,8 +30,8 @@ const SentimentCard: React.FC<SentimentCardProps> = ({ result }) => {
     }
   };
 
-  const Icon = getSentimentIcon(result.results.sentiment);
-  const colorClass = getSentimentColor(result.results.sentiment);
+  const Icon = getSentimentIcon(result.sentiment.label);
+  const colorClass = getSentimentColor(result.sentiment.label);
 
   return (
     <motion.div
@@ -56,11 +56,11 @@ const SentimentCard: React.FC<SentimentCardProps> = ({ result }) => {
         </motion.div>
         
         <h4 className="text-2xl font-bold text-gray-900 capitalize mb-2">
-          {result.results.sentiment}
+          {result.sentiment.label}
         </h4>
         
         <div className="text-3xl font-bold text-primary-600 mb-2">
-          {(result.results.confidence * 100).toFixed(1)}%
+          {(result.sentiment.confidence * 100).toFixed(1)}%
         </div>
         
         <p className="text-sm text-gray-600">Confidence Score</p>
@@ -84,7 +84,7 @@ const SentimentCard: React.FC<SentimentCardProps> = ({ result }) => {
             <motion.div
               className="bg-gradient-to-r from-primary-600 to-accent-600 h-2 rounded-full"
               initial={{ width: 0 }}
-              animate={{ width: `${result.results.confidence * 100}%` }}
+              animate={{ width: `${result.sentiment.confidence * 100}%` }}
               transition={{ delay: 0.5, duration: 1 }}
             />
           </div>

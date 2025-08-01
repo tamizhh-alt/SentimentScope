@@ -42,7 +42,7 @@ const ResultsSection: React.FC<ResultsSectionProps> = ({ onViewDashboard }) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <SentimentCard result={latestResult} />
-        <EmotionChart emotions={latestResult.results.emotions} />
+        <EmotionChart emotions={latestResult.emotions} />
       </div>
 
       <div className="bg-white/60 backdrop-blur-sm rounded-xl p-6 shadow-lg border border-white/20">
@@ -50,7 +50,7 @@ const ResultsSection: React.FC<ResultsSectionProps> = ({ onViewDashboard }) => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="text-center">
             <div className="text-2xl font-bold text-primary-600">
-              {(latestResult.results.confidence * 100).toFixed(1)}%
+              {(latestResult.sentiment.confidence * 100).toFixed(1)}%
             </div>
             <div className="text-sm text-gray-600">Confidence Score</div>
           </div>
