@@ -56,4 +56,10 @@ $env:GIT_COMMITTER_DATE = $date
 Set-Content -Path $counterFile -Value ([string]($idx + 1)) -NoNewline
 
 Write-Host "Successfully amended commit with date: $date" -ForegroundColor Green
+<<<<<<< HEAD
 exit 0
+=======
+exit 0
+
+
+>>>>>>> 312fbed (Save current work before rebase)
