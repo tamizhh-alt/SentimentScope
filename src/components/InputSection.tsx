@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, Type, FileText, Loader } from 'lucide-react';
+import { Upload, Type, FileText, Loader, CheckCircle } from 'lucide-react';
 import TextInput from './TextInput';
 import FileUpload from './FileUpload';
 import { useAnalysis } from '../context/AnalysisContext';
@@ -12,6 +12,7 @@ interface InputSectionProps {
 const InputSection: React.FC<InputSectionProps> = ({ onAnalysisComplete }) => {
   const [inputMethod, setInputMethod] = useState<'text' | 'file'>('text');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
   const { addAnalysisResult } = useAnalysis();
 
   const inputMethods = [
@@ -31,32 +32,61 @@ const InputSection: React.FC<InputSectionProps> = ({ onAnalysisComplete }) => {
 
   const handleAnalysis = async (data: any) => {
     setIsProcessing(true);
+    setProcessingProgress(0);
     
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Add analysis result to context
-    addAnalysisResult({
-      id: Date.now().toString(),
-      timestamp: new Date(),
-      type: inputMethod,
-      data,
-      results: {
-        sentiment: Math.random() > 0.5 ? 'positive' : 'negative',
-        confidence: Math.random() * 0.4 + 0.6,
-        emotions: {
-          joy: Math.random(),
-          anger: Math.random(),
-          sadness: Math.random(),
-          fear: Math.random(),
-          surprise: Math.random(),
-          disgust: Math.random(),
+    try {
+      // Simulate processing progress
+      const progressInterval = setInterval(() => {
+        setProcessingProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + 10;
+        });
+      }, 200);
+
+      // Add analysis result to context
+      addAnalysisResult({
+        id: data.id || Date.now().toString(),
+        timestamp: new Date(data.timestamp || Date.now()),
+        type: inputMethod,
+        data,
+        results: {
+          sentiment: data.sentiment?.label || 'neutral',
+          confidence: data.sentiment?.confidence || 0.5,
+          emotions: data.emotions ? data.emotions.reduce((acc: any, emotion: any) => {
+            acc[emotion.label] = emotion.percent / 100;
+            return acc;
+          }, {}) : {
+            joy: Math.random(),
+            anger: Math.random(),
+            sadness: Math.random(),
+            fear: Math.random(),
+            surprise: Math.random(),
+            disgust: Math.random(),
+          },
+          keywords: data.keywords || [],
+          summary: data.summary || null,
+          language: data.language || null,
+          processingTime: data.processingTime || 0
         },
-      },
-    });
-    
-    setIsProcessing(false);
-    onAnalysisComplete();
+      });
+
+      // Complete progress
+      clearInterval(progressInterval);
+      setProcessingProgress(100);
+      
+      // Small delay to show completion
+      setTimeout(() => {
+        setIsProcessing(false);
+        onAnalysisComplete();
+      }, 500);
+      
+    } catch (error) {
+      console.error('Analysis processing error:', error);
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -84,13 +114,14 @@ const InputSection: React.FC<InputSectionProps> = ({ onAnalysisComplete }) => {
                 <motion.button
                   key={method.id}
                   onClick={() => setInputMethod(method.id)}
-                  className={`flex items-center space-x-3 px-6 py-3 rounded-lg font-medium transition-all duration-200 ${
+                  disabled={isProcessing}
+                  className={`flex items-center space-x-3 px-6 py-3 rounded-lg font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
                     isActive
                       ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/25'
                       : 'text-gray-600 hover:text-primary-600 hover:bg-primary-50'
                   }`}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={{ scale: !isProcessing ? 1.02 : 1 }}
+                  whileTap={{ scale: !isProcessing ? 0.98 : 1 }}
                 >
                   <Icon className="w-5 h-5" />
                   <div className="text-left">
@@ -112,17 +143,31 @@ const InputSection: React.FC<InputSectionProps> = ({ onAnalysisComplete }) => {
               exit={{ opacity: 0 }}
               className="bg-white/60 backdrop-blur-sm rounded-xl p-12 text-center shadow-lg border border-white/20"
             >
-              <Loader className="w-12 h-12 text-primary-600 animate-spin mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Processing Your Data</h3>
-              <p className="text-gray-600">Our AI models are analyzing your content...</p>
-              <div className="mt-6 w-full bg-gray-200 rounded-full h-2">
+              <div className="flex items-center justify-center mb-4">
+                {processingProgress === 100 ? (
+                  <CheckCircle className="w-12 h-12 text-green-600" />
+                ) : (
+                  <Loader className="w-12 h-12 text-primary-600 animate-spin" />
+                )}
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                {processingProgress === 100 ? 'Analysis Complete!' : 'Processing Your Data'}
+              </h3>
+              <p className="text-gray-600 mb-6">
+                {processingProgress === 100 
+                  ? 'Your sentiment analysis is ready to view'
+                  : 'Our AI models are analyzing your content...'
+                }
+              </p>
+              <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
                 <motion.div
-                  className="bg-gradient-to-r from-primary-600 to-accent-600 h-2 rounded-full"
+                  className="bg-gradient-to-r from-primary-600 to-accent-600 h-3 rounded-full"
                   initial={{ width: 0 }}
-                  animate={{ width: '100%' }}
-                  transition={{ duration: 2 }}
+                  animate={{ width: `${processingProgress}%` }}
+                  transition={{ duration: 0.3 }}
                 />
               </div>
+              <p className="text-sm text-gray-500">{processingProgress}% complete</p>
             </motion.div>
           ) : (
             <motion.div

@@ -3,7 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { SentimentService } from '../services/SentimentService.js';
 import { TranslationService } from '../services/TranslationService.js';
 import { CacheService } from '../services/CacheService.js';
-import { auth } from '../middleware/auth.js';
+import { optionalAuth } from '../middleware/auth.js';
 
 const router = express.Router();
 const sentimentService = new SentimentService();
@@ -15,7 +15,8 @@ const analyzeValidation = [
   body('text').notEmpty().withMessage('Text is required').isLength({ max: 10000 }).withMessage('Text too long'),
   body('language').optional().isString().withMessage('Language must be a string'),
   body('includeEmotions').optional().isBoolean().withMessage('includeEmotions must be boolean'),
-  body('detectLanguage').optional().isBoolean().withMessage('detectLanguage must be boolean')
+  body('detectLanguage').optional().isBoolean().withMessage('detectLanguage must be boolean'),
+  body('includeSummary').optional().isBoolean().withMessage('includeSummary must be boolean')
 ];
 
 const batchValidation = [
@@ -26,7 +27,7 @@ const batchValidation = [
 ];
 
 // Single text analysis
-router.post('/analyze', analyzeValidation, async (req, res) => {
+router.post('/analyze', optionalAuth, analyzeValidation, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -36,10 +37,16 @@ router.post('/analyze', analyzeValidation, async (req, res) => {
       });
     }
 
-    const { text, language = 'auto', includeEmotions = true, detectLanguage = true } = req.body;
+    const { 
+      text, 
+      language = 'auto', 
+      includeEmotions = true, 
+      detectLanguage = true,
+      includeSummary = false 
+    } = req.body;
     
     // Check cache first
-    const cacheKey = `sentiment:${Buffer.from(text).toString('base64')}:${language}:${includeEmotions}`;
+    const cacheKey = `sentiment:${Buffer.from(text).toString('base64')}:${language}:${includeEmotions}:${includeSummary}`;
     const cached = cacheService.get(cacheKey);
     if (cached) {
       return res.json({
@@ -78,6 +85,12 @@ router.post('/analyze', analyzeValidation, async (req, res) => {
     // Extract keywords
     const keywords = await sentimentService.extractKeywords(textToAnalyze);
 
+    // Generate summary if requested
+    let summary = null;
+    if (includeSummary && text.length > 200) {
+      summary = await sentimentService.summarizeText(textToAnalyze);
+    }
+
     const result = {
       id: `analysis_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       timestamp: new Date().toISOString(),
@@ -94,6 +107,7 @@ router.post('/analyze', analyzeValidation, async (req, res) => {
       },
       emotions: emotions,
       keywords: keywords,
+      summary: summary,
       processingTime: Date.now() - startTime,
       cached: false
     };
@@ -113,7 +127,7 @@ router.post('/analyze', analyzeValidation, async (req, res) => {
 });
 
 // Batch analysis
-router.post('/batch', batchValidation, async (req, res) => {
+router.post('/batch', optionalAuth, batchValidation, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -130,7 +144,7 @@ router.post('/batch', batchValidation, async (req, res) => {
     const batchId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Process texts in parallel with concurrency limit
-    const concurrencyLimit = 5;
+    const concurrencyLimit = 3; // Reduced to avoid API rate limits
     for (let i = 0; i < texts.length; i += concurrencyLimit) {
       const batch = texts.slice(i, i + concurrencyLimit);
       const batchPromises = batch.map(async (text, index) => {
@@ -141,6 +155,9 @@ router.post('/batch', batchValidation, async (req, res) => {
           if (cached) {
             return { ...cached, index: i + index, cached: true };
           }
+
+          // Add delay to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, index * 500));
 
           // Analyze sentiment
           const sentimentResult = await sentimentService.analyzeSentiment(text);
@@ -154,7 +171,7 @@ router.post('/batch', batchValidation, async (req, res) => {
           const result = {
             id: `${batchId}_${i + index}`,
             index: i + index,
-            text: text,
+            text: text.length > 200 ? text.substring(0, 200) + '...' : text,
             sentiment: {
               label: sentimentResult.label,
               confidence: sentimentResult.confidence,
@@ -168,9 +185,10 @@ router.post('/batch', batchValidation, async (req, res) => {
           cacheService.set(cacheKey, result, 3600);
           return result;
         } catch (error) {
+          console.error(`Error processing text ${i + index}:`, error.message);
           return {
             index: i + index,
-            text: text,
+            text: text.length > 200 ? text.substring(0, 200) + '...' : text,
             error: error.message,
             failed: true
           };
@@ -197,7 +215,10 @@ router.post('/batch', batchValidation, async (req, res) => {
         successful: successful.length,
         failed: failed.length,
         processingTime: Date.now() - startTime,
-        sentimentDistribution: sentimentCounts
+        sentimentDistribution: sentimentCounts,
+        averageConfidence: successful.length > 0 
+          ? successful.reduce((sum, r) => sum + (r.sentiment?.confidence || 0), 0) / successful.length 
+          : 0
       },
       results: results
     };
@@ -235,6 +256,35 @@ router.get('/languages', (req, res) => {
       { code: 'nl', name: 'Dutch' }
     ]
   });
+});
+
+// Test endpoint for API connectivity
+router.get('/test', async (req, res) => {
+  try {
+    const testText = "This is a test message to verify API connectivity.";
+    
+    const sentimentResult = await sentimentService.analyzeSentiment(testText);
+    const emotionResult = await sentimentService.analyzeEmotions(testText);
+    
+    res.json({
+      status: 'success',
+      message: 'API connectivity test successful',
+      results: {
+        sentiment: sentimentResult,
+        emotions: emotionResult
+      },
+      apiStatus: {
+        huggingface: process.env.HUGGINGFACE_API_KEY && !process.env.HUGGINGFACE_API_KEY.includes('dummy') ? 'configured' : 'mock',
+        openai: process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.includes('dummy') ? 'configured' : 'mock'
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'API connectivity test failed',
+      error: error.message
+    });
+  }
 });
 
 export default router;
