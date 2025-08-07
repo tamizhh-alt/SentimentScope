@@ -2,9 +2,10 @@ import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, File, CheckCircle, AlertCircle, X } from 'lucide-react';
+import axios from 'axios';
 
 interface FileUploadProps {
-  onAnalyze: (data: { files: File[]; settings: any }) => void;
+  onAnalyze: (data: any) => void;
 }
 
 const FileUpload: React.FC<FileUploadProps> = ({ onAnalyze }) => {
@@ -14,6 +15,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onAnalyze }) => {
     includeMetadata: true,
     filterDuplicates: true,
   });
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setUploadedFiles(prev => [...prev, ...acceptedFiles]);
@@ -35,9 +38,82 @@ const FileUpload: React.FC<FileUploadProps> = ({ onAnalyze }) => {
     setUploadedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleProcess = () => {
-    if (uploadedFiles.length > 0) {
-      onAnalyze({ files: uploadedFiles, settings: processingSettings });
+  const handleProcess = async () => {
+    if (uploadedFiles.length === 0 || isUploading) return;
+    setError(null);
+    setIsUploading(true);
+
+    try {
+      const file = uploadedFiles[0];
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('includeEmotions', 'true');
+      formData.append('batchSize', String(processingSettings.batchSize));
+      formData.append('textColumn', 'text');
+
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const res = await axios.post(`${apiBase}/api/files/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const payload = res.data;
+      const successful = (payload.results || []).filter((r: any) => !r.failed);
+      const withSentiment = successful.filter((r: any) => r.sentiment && r.sentiment.confidence != null);
+
+      const counts: Record<string, number> = {};
+      withSentiment.forEach((r: any) => {
+        const label = r.sentiment.label || 'unknown';
+        counts[label] = (counts[label] || 0) + 1;
+      });
+      const majorityLabel = Object.entries(counts).sort((a, b) => (b[1] as number) - (a[1] as number))[0]?.[0] || 'neutral';
+
+      const avgConfidence = withSentiment.length > 0
+        ? withSentiment.reduce((sum: number, r: any) => sum + (r.sentiment.confidence || 0), 0) / withSentiment.length
+        : 0.5;
+
+      const emotionSums: Record<string, number> = {};
+      let emotionCount = 0;
+      successful.forEach((r: any) => {
+        if (Array.isArray(r.emotions)) {
+          emotionCount++;
+          r.emotions.forEach((e: any) => {
+            const key = String(e.label || '').toLowerCase();
+            const val = typeof e.percent === 'number' ? e.percent / 100 : (e.score ?? 0);
+            if (!Number.isFinite(val)) return;
+            emotionSums[key] = (emotionSums[key] || 0) + val;
+          });
+        }
+      });
+      const emotions: Record<string, number> = {};
+      Object.entries(emotionSums).forEach(([k, v]) => {
+        emotions[k] = emotionCount > 0 ? (v as number) / emotionCount : 0;
+      });
+
+      const unified = {
+        id: payload.jobId || `file_${Date.now()}`,
+        timestamp: payload.timestamp || new Date().toISOString(),
+        type: 'file',
+        file: {
+          name: payload.fileName,
+          size: payload.fileSize,
+        },
+        sentiment: {
+          label: majorityLabel,
+          confidence: avgConfidence,
+          scores: {},
+        },
+        emotions,
+        summary: payload.summary || null,
+        results: payload.results || [],
+        processingTime: 0,
+      };
+
+      onAnalyze(unified);
+    } catch (e: any) {
+      const message = e?.response?.data?.message || e?.message || 'File upload failed';
+      setError(message);
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -60,6 +136,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onAnalyze }) => {
           <p className="text-gray-600 text-sm">Upload CSV, JSON, Excel, or text files for batch processing</p>
         </div>
       </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2">
+          <AlertCircle className="w-4 h-4 text-red-500" />
+          <span className="text-red-700 text-sm">{error}</span>
+        </div>
+      )}
 
       <motion.div
         {...getRootProps()}
@@ -168,13 +251,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onAnalyze }) => {
 
       <motion.button
         onClick={handleProcess}
-        disabled={uploadedFiles.length === 0}
+        disabled={uploadedFiles.length === 0 || isUploading}
         className="w-full mt-6 bg-gradient-to-r from-secondary-600 to-primary-600 text-white px-6 py-3 rounded-lg font-medium flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transition-all duration-200"
         whileHover={{ scale: uploadedFiles.length > 0 ? 1.02 : 1 }}
         whileTap={{ scale: uploadedFiles.length > 0 ? 0.98 : 1 }}
       >
         <CheckCircle className="w-4 h-4" />
-        <span>Process Files ({uploadedFiles.length})</span>
+        <span>{isUploading ? 'Processing...' : `Process Files (${uploadedFiles.length})`}</span>
       </motion.button>
     </div>
   );
